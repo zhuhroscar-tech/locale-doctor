@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "locale-doctor"
+version = "0.1.0"
+description = "Diagnose Linux locale misconfiguration: uninstalled requested locales, non-UTF-8 charmap mojibake, and sshd accepting locale env vars it can't satisfy."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [{name = "zhuhroscar-tech"}]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: POSIX :: Linux",
+  "License :: OSI Approved :: MIT License",
+]
+
+[project.scripts]
+locale-doctor = "locale_doctor.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
