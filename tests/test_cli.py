@@ -28,7 +28,8 @@ def test_text_output(monkeypatch, capsys):
     rc = main([])
     out = capsys.readouterr().out
     assert "requested_locale_not_installed" in out
-    assert "LC_TIME=de_DE.UTF-8" in out
+    assert "LC_TIME" in out
+    assert "de_DE.UTF-8" in out
     assert "uninstalled locale" in out
     assert rc == 2
 

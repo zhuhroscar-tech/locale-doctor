@@ -7,6 +7,7 @@ import sys
 
 from . import __version__
 from .core import diagnose_host, ISSUE_NONE_FOUND
+from .style import print_fields, resolve_style, status_headline
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,17 +26,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip reading /etc/ssh/sshd_config (e.g. if unreadable without root).",
     )
     p.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    p.add_argument("--no-color", action="store_true", help="Disable colored output.")
     return p
 
 
-def _print_text(report) -> None:
-    print(f"Issue: {report.issue}")
+def _print_text(report, style) -> None:
+    level = "ok" if report.issue == ISSUE_NONE_FOUND else "fail"
+    print(status_headline(style, level, report.issue))
     print(report.explanation)
     if report.locale_env:
         print("\nCurrent locale environment variables:")
+        rows = []
         for k, v in sorted(report.locale_env.items()):
             flag = " <-- requests an uninstalled locale" if k in report.missing_locales else ""
-            print(f"  {k}={v}{flag}")
+            rows.append((k, f"{v}{flag}"))
+        print_fields(rows)
     if report.active_charmap:
         print(f"\nActive charmap: {report.active_charmap}")
     if report.sshd_accepts_locale_vars:
@@ -49,7 +54,8 @@ def main(argv=None) -> int:
     if args.json:
         print(json.dumps(report.to_dict(), indent=2))
     else:
-        _print_text(report)
+        style = resolve_style(no_color_flag=args.no_color)
+        _print_text(report, style)
 
     if report.issue == ISSUE_NONE_FOUND:
         return 0
