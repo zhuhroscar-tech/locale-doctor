@@ -34,6 +34,8 @@ reconciliation into one command.
 
 ## What this does
 
+![locale-doctor example output](docs/images/example-output.png)
+
 ```
 $ locale-doctor
 
