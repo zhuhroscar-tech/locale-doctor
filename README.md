@@ -1,7 +1,21 @@
 # locale-doctor
 
+[![CI](https://github.com/zhuhroscar-tech/locale-doctor/actions/workflows/ci.yml/badge.svg)](https://github.com/zhuhroscar-tech/locale-doctor/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/zhuhroscar-tech/locale-doctor?include_prereleases&label=release)](https://github.com/zhuhroscar-tech/locale-doctor/releases)
+![Linux](https://img.shields.io/badge/platform-Linux-111111?logo=linux)
+
 Diagnose Linux locale misconfiguration — instead of manually reconciling
 `locale`, `locale -a`, and SSH config files by hand.
+
+## Simple explanation
+
+When you SSH into a Linux server and see garbled text or warnings about
+"setting locale failed", it's almost always because your computer asked
+for a language/region setting the server never installed. This tool
+checks your current session and the server's SSH settings, tells you
+in plain language which setting is mismatched, and suggests the exact
+fix. It only reads settings — it never changes your language
+configuration or the server's SSH config.
 
 ## The problem
 
