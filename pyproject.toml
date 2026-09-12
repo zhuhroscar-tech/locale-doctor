@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "locale-doctor"
-version = "0.1.1"
+version = "0.1.2"
 description = "Diagnose Linux locale misconfiguration: uninstalled requested locales, non-UTF-8 charmap mojibake, and sshd accepting locale env vars it can't satisfy."
 readme = "README.md"
 license = {text = "MIT"}

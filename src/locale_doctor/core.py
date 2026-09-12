@@ -35,9 +35,20 @@ from typing import Optional
 ISSUE_UNSET_LOCALE_REQUESTED = "requested_locale_not_installed"
 ISSUE_MISMATCHED_CHARMAP = "mismatched_charmap"
 ISSUE_SSH_FORWARDS_UNKNOWN_LOCALE = "ssh_forwards_uninstalled_locale_vars"
+ISSUE_LOCALE_LIST_UNAVAILABLE = "installed_locale_list_unavailable"
 ISSUE_NONE_FOUND = "no_locale_issue_found"
 
 ISSUE_EXPLANATIONS = {
+    ISSUE_LOCALE_LIST_UNAVAILABLE: (
+        "`locale -a` returned no locales at all, which real systems never do "
+        "(even a minimal host reports at least 'C' and 'POSIX'). This means "
+        "the installed-locale list could not actually be determined -- "
+        "likely because the `locale` binary is missing, unusable, or the "
+        "command failed in this environment. Any 'requested locale not "
+        "installed' verdict would be a false positive in this state, so no "
+        "such verdict is reported; re-run where `locale -a` works to get a "
+        "real diagnosis."
+    ),
     ISSUE_UNSET_LOCALE_REQUESTED: (
         "One or more locale environment variables (LANG/LC_ALL/LC_*) request "
         "a locale that is not present in this host's installed locale list "
@@ -189,13 +200,26 @@ def diagnose(
     active_charmap: Optional[str],
     sshd_config_text: Optional[str] = None,
 ) -> LocaleDoctorReport:
-    """Classify locale misconfiguration, in priority order: a currently
-    unsatisfiable requested locale (most directly explains a failure the
-    user is already seeing); then a non-UTF-8 charmap (explains mojibake);
-    then sshd accepting locale vars it can't guarantee (a latent risk
-    rather than a proven failure); else none found."""
-    missing = find_missing_locales(locale_env, installed_locales)
+    """Classify locale misconfiguration, in priority order: an unavailable
+    installed-locale list (means the check itself is broken -- must not be
+    silently treated as "everything requested is missing"); then a
+    currently unsatisfiable requested locale (most directly explains a
+    failure the user is already seeing); then a non-UTF-8 charmap (explains
+    mojibake); then sshd accepting locale vars it can't guarantee (a latent
+    risk rather than a proven failure); else none found."""
     sshd_accepts = sshd_accepts_locale(sshd_config_text) if sshd_config_text is not None else None
+
+    if not installed_locales:
+        return LocaleDoctorReport(
+            issue=ISSUE_LOCALE_LIST_UNAVAILABLE,
+            explanation=ISSUE_EXPLANATIONS[ISSUE_LOCALE_LIST_UNAVAILABLE],
+            locale_env=locale_env,
+            missing_locales={},
+            active_charmap=active_charmap,
+            sshd_accepts_locale_vars=sshd_accepts,
+        )
+
+    missing = find_missing_locales(locale_env, installed_locales)
 
     if missing:
         return LocaleDoctorReport(

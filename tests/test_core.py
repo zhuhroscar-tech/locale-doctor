@@ -1,4 +1,5 @@
 from locale_doctor.core import (
+    ISSUE_LOCALE_LIST_UNAVAILABLE,
     ISSUE_MISMATCHED_CHARMAP,
     ISSUE_NONE_FOUND,
     ISSUE_SSH_FORWARDS_UNKNOWN_LOCALE,
@@ -169,3 +170,39 @@ def test_diagnose_host_integration(monkeypatch):
 
     report = diagnose_host(runner=fake_runner)
     assert report.issue == ISSUE_NONE_FOUND
+
+
+def test_diagnose_reports_locale_list_unavailable_not_all_missing():
+    """When `locale -a` yields nothing (broken/unavailable tool), diagnose()
+    must not silently treat every requested locale as 'not installed' --
+    that would be a false positive masking a diagnostic-tool failure. Real
+    hosts always report at least C/POSIX from `locale -a`, so an empty list
+    means the check itself is broken, not that nothing is installed."""
+    report = diagnose(
+        locale_env={"LANG": "en_US.UTF-8"},
+        installed_locales=[],
+        active_charmap="UTF-8",
+        sshd_config_text="X11Forwarding yes\n",
+    )
+    assert report.issue == ISSUE_LOCALE_LIST_UNAVAILABLE
+    assert report.missing_locales == {}
+
+
+def test_diagnose_host_integration_locale_a_unavailable(monkeypatch):
+    """Integration-level proof: if the `locale -a` runner call fails/returns
+    nothing, diagnose_host() surfaces the unavailable-list issue instead of
+    falsely flagging LANG as an uninstalled locale."""
+    monkeypatch.setenv("LANG", "en_US.UTF-8")
+    monkeypatch.delenv("LC_ALL", raising=False)
+
+    def fake_runner(cmd, timeout=15):
+        if cmd == ["locale", "-a"]:
+            return ""  # locale binary missing/broken in this environment
+        if cmd[0] == "locale" and "charmap" in cmd:
+            return 'charmap="UTF-8"\n'
+        if cmd[0] == "cat":
+            return "X11Forwarding yes\n"
+        return ""
+
+    report = diagnose_host(runner=fake_runner)
+    assert report.issue == ISSUE_LOCALE_LIST_UNAVAILABLE

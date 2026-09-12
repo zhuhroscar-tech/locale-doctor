@@ -6,7 +6,7 @@ import json
 import sys
 
 from . import __version__
-from .core import diagnose_host, ISSUE_NONE_FOUND
+from .core import diagnose_host, ISSUE_NONE_FOUND, ISSUE_LOCALE_LIST_UNAVAILABLE
 from .style import print_fields, resolve_style, status_headline
 
 
@@ -31,7 +31,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _print_text(report, style) -> None:
-    level = "ok" if report.issue == ISSUE_NONE_FOUND else "fail"
+    if report.issue == ISSUE_NONE_FOUND:
+        level = "ok"
+    elif report.issue == ISSUE_LOCALE_LIST_UNAVAILABLE:
+        level = "warn"
+    else:
+        level = "fail"
     print(status_headline(style, level, report.issue))
     print(report.explanation)
     if report.locale_env:
