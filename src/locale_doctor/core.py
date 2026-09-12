@@ -25,6 +25,7 @@ locales`, or modifies any SSH config file.
 """
 from __future__ import annotations
 
+import glob as glob_module
 import os
 import re
 import subprocess
@@ -174,6 +175,32 @@ def read_file_if_exists(path: str, runner=run) -> str:
     return runner(["cat", path])
 
 
+_INCLUDE_RE = re.compile(r"^\s*Include\s+(.+)$", re.IGNORECASE | re.MULTILINE)
+
+
+def find_included_sshd_files(config_text: str, base_dir: str = "/etc/ssh", glob_fn=glob_module.glob) -> list:
+    """Resolve every path matched by an sshd_config `Include` directive.
+
+    Every mainstream OpenSSH-shipped sshd_config since OpenSSH 8.2 (the
+    default on Ubuntu 20.04+, Debian 11+, RHEL 8+, and most distro
+    packaging) starts with `Include /etc/ssh/sshd_config.d/*.conf`, and
+    hardening/config-management tooling (cloud-init, Ansible, Puppet)
+    commonly drops `AcceptEnv` overrides into that directory rather than
+    editing the main file. A relative Include pattern is resolved against
+    `base_dir` (sshd_config's own directory), matching sshd's own
+    behavior. Glob matches are sorted for deterministic, reproducible
+    results.
+    """
+    paths: list = []
+    for m in _INCLUDE_RE.finditer(config_text):
+        for token in m.group(1).split():
+            pattern = token.strip()
+            if not pattern.startswith("/"):
+                pattern = f"{base_dir.rstrip('/')}/{pattern}"
+            paths.extend(sorted(glob_fn(pattern)))
+    return paths
+
+
 @dataclass
 class LocaleDoctorReport:
     issue: str
@@ -272,6 +299,11 @@ def diagnose_host(check_sshd_config: bool = True, runner=run) -> LocaleDoctorRep
             text = read_file_if_exists(candidate, runner=runner)
             if text:
                 sshd_config_text = text
+                included = find_included_sshd_files(text)
+                for inc_path in included:
+                    inc_text = read_file_if_exists(inc_path, runner=runner)
+                    if inc_text:
+                        sshd_config_text += "\n" + inc_text
                 break
         if sshd_config_text is None:
             sshd_config_text = ""

@@ -7,6 +7,7 @@ from locale_doctor.core import (
     charmap_is_utf8,
     diagnose,
     diagnose_host,
+    find_included_sshd_files,
     find_missing_locales,
     get_active_charmap,
     get_installed_locales,
@@ -206,3 +207,67 @@ def test_diagnose_host_integration_locale_a_unavailable(monkeypatch):
 
     report = diagnose_host(runner=fake_runner)
     assert report.issue == ISSUE_LOCALE_LIST_UNAVAILABLE
+
+
+def test_find_included_sshd_files_resolves_absolute_glob():
+    """Ubuntu 20.04+/Debian 11+/RHEL 8+ ship `Include /etc/ssh/sshd_config.d/*.conf`
+    at the top of the default sshd_config; hardening tools (cloud-init,
+    Ansible) commonly drop AcceptEnv overrides there instead of editing the
+    main file."""
+    config = "Include /etc/ssh/sshd_config.d/*.conf\nX11Forwarding yes\n"
+
+    def fake_glob(pattern):
+        assert pattern == "/etc/ssh/sshd_config.d/*.conf"
+        return ["/etc/ssh/sshd_config.d/50-cloud-init.conf", "/etc/ssh/sshd_config.d/10-hardening.conf"]
+
+    result = find_included_sshd_files(config, glob_fn=fake_glob)
+    # sorted deterministically
+    assert result == ["/etc/ssh/sshd_config.d/10-hardening.conf", "/etc/ssh/sshd_config.d/50-cloud-init.conf"]
+
+
+def test_find_included_sshd_files_resolves_relative_pattern():
+    config = "Include sshd_config.d/*.conf\n"
+
+    def fake_glob(pattern):
+        assert pattern == "/etc/ssh/sshd_config.d/*.conf"
+        return []
+
+    result = find_included_sshd_files(config, base_dir="/etc/ssh", glob_fn=fake_glob)
+    assert result == []
+
+
+def test_find_included_sshd_files_none_when_no_include_directive():
+    config = "X11Forwarding yes\nAcceptEnv LANG LC_*\n"
+    assert find_included_sshd_files(config, glob_fn=lambda p: ["should-not-be-called"]) == []
+
+
+def test_diagnose_host_detects_accept_env_only_in_included_dropin(monkeypatch, tmp_path):
+    """Regression for the real gap: the main sshd_config has no AcceptEnv
+    line (as on a hardened/default host using the standard `Include
+    /etc/ssh/sshd_config.d/*.conf` layout), but a drop-in file included
+    from it does grant AcceptEnv LANG LC_*. Before this fix, diagnose_host
+    only ever read the literal /etc/ssh/sshd_config file and never
+    resolved Include directives, so this real-world case was silently
+    reported as 'no locale issue found' -- a false all-clear."""
+    monkeypatch.setenv("LANG", "en_US.UTF-8")
+    monkeypatch.delenv("LC_ALL", raising=False)
+
+    dropin_dir = tmp_path / "sshd_config.d"
+    dropin_dir.mkdir()
+    dropin_file = dropin_dir / "50-cloud-init.conf"
+    dropin_file.write_text("AcceptEnv LANG LC_*\n")
+
+    def fake_runner(cmd, timeout=15):
+        if cmd == ["locale", "-a"]:
+            return "C\nC.UTF-8\nen_US.utf8\n"
+        if cmd[0] == "locale" and "charmap" in cmd:
+            return 'charmap="UTF-8"\n'
+        if cmd[0] == "cat" and cmd[1] == "/etc/ssh/sshd_config":
+            return f"Include {dropin_dir}/*.conf\nX11Forwarding yes\n"
+        if cmd[0] == "cat" and cmd[1] == str(dropin_file):
+            return dropin_file.read_text()
+        return ""
+
+    report = diagnose_host(runner=fake_runner)
+    assert report.issue == ISSUE_SSH_FORWARDS_UNKNOWN_LOCALE
+    assert report.sshd_accepts_locale_vars is True
