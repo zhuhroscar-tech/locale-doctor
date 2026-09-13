@@ -80,7 +80,7 @@ pip install locale-doctor
 Or run the standalone zipapp with no install:
 
 ```bash
-curl -LO https://github.com/zhuhroscar-tech/locale-doctor/releases/download/v0.1.0/locale-doctor.pyz
+curl -LO https://github.com/zhuhroscar-tech/locale-doctor/releases/latest/download/locale-doctor.pyz
 python3 locale-doctor.pyz --version
 ```
 
