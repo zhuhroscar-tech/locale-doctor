@@ -1,3 +1,5 @@
+import subprocess
+
 from locale_doctor.core import (
     ISSUE_LOCALE_LIST_UNAVAILABLE,
     ISSUE_MISMATCHED_CHARMAP,
@@ -13,6 +15,7 @@ from locale_doctor.core import (
     get_installed_locales,
     get_locale_env,
     locale_is_installed,
+    run,
     sshd_accepts_locale,
 )
 
@@ -271,3 +274,42 @@ def test_diagnose_host_detects_accept_env_only_in_included_dropin(monkeypatch, t
     report = diagnose_host(runner=fake_runner)
     assert report.issue == ISSUE_SSH_FORWARDS_UNKNOWN_LOCALE
     assert report.sshd_accepts_locale_vars is True
+
+
+def test_run_returns_empty_string_on_oserror(monkeypatch):
+    """run() is the sole subprocess wrapper used by every locale/locale -a/cat
+    call. If the binary is missing or unreadable, subprocess.run can raise
+    OSError directly (not just return a nonzero exit code) -- run() must
+    degrade to an empty string rather than propagating, so callers can keep
+    treating "no output" as a single uniform not-available signal."""
+
+    def raise_oserror(cmd, capture_output, text, timeout, check):
+        raise OSError("locale: command not found")
+
+    monkeypatch.setattr(subprocess, "run", raise_oserror)
+    assert run(["locale", "-a"]) == ""
+
+
+def test_run_returns_empty_string_on_timeout(monkeypatch):
+    def raise_timeout(cmd, capture_output, text, timeout, check):
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout)
+
+    monkeypatch.setattr(subprocess, "run", raise_timeout)
+    assert run(["locale", "-a"], timeout=1) == ""
+
+
+def test_run_returns_stdout_on_success(monkeypatch):
+    """The success path of run() itself (not just callers that inject a fake
+    runner) was never directly exercised -- close that alongside the error
+    branches above so run() has full coverage as the fleet's sole
+    locale/locale -a/cat subprocess wrapper."""
+
+    class FakeResult:
+        stdout = "C.UTF-8\n"
+
+    def fake_subprocess_run(cmd, capture_output, text, timeout, check):
+        assert cmd == ["locale", "-a"]
+        return FakeResult()
+
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+    assert run(["locale", "-a"]) == "C.UTF-8\n"
