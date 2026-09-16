@@ -1,162 +1,50 @@
 # locale-doctor
 
-[![CI](https://github.com/zhuhroscar-tech/locale-doctor/actions/workflows/ci.yml/badge.svg)](https://github.com/zhuhroscar-tech/locale-doctor/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/zhuhroscar-tech/locale-doctor?include_prereleases&label=release)](https://github.com/zhuhroscar-tech/locale-doctor/releases)
-![Linux](https://img.shields.io/badge/platform-Linux-111111?logo=linux)
+[![English](https://img.shields.io/badge/English-555555?style=flat)](README.md) [![简体中文](https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-555555?style=flat)](README.zh-CN.md)
 
-Diagnose Linux locale misconfiguration — instead of manually reconciling
-`locale`, `locale -a`, and SSH config files by hand.
-
-## Simple explanation
-
-When you SSH into a Linux server and see garbled text or warnings about
-"setting locale failed", it's almost always because your computer asked
-for a language/region setting the server never installed. This tool
-checks your current session and the server's SSH settings, tells you
-in plain language which setting is mismatched, and suggests the exact
-fix. It only reads settings — it never changes your language
-configuration or the server's SSH config.
-
-## The problem
-
-A decade-old, still-recurring Linux failure mode: `perl: warning:
-Setting locale failed`, `locale: Cannot set LC_ALL to default locale`,
-or mojibake (`??????` or garbled accented characters) over SSH. It
-happens because the *client's* locale environment variables (`LANG`,
-`LC_ALL`, `LC_*`) get forwarded over SSH (`SendEnv`/`AcceptEnv`) to a
-*server* that doesn't have that locale installed or generated. Every
-existing answer (AskUbuntu, Unix & Linux Stack Exchange, r/openbsd,
-r/ProxmoxQA) walks the same multi-step manual diagnostic: read `locale`
-output, check `locale -a` for what's actually installed, check
-`/etc/ssh/ssh_config`'s `SendEnv` and `/etc/ssh/sshd_config`'s
-`AcceptEnv`, and reconcile them by hand. No existing tool automates this
-reconciliation into one command.
-
-## What this does
+Diagnose locale warnings and likely encoding mismatches in the current shell or SSH session. locale-doctor compares requested locales with the host's installed list, checks the active charmap and looks for SSH locale-forwarding risk—all read-only.
 
 ![locale-doctor example output](docs/images/example-output.png)
 
-```
-$ locale-doctor
+[Demo video](docs/demo.mp4)
 
-Issue: requested_locale_not_installed
-One or more locale environment variables (LANG/LC_ALL/LC_*) request a
-locale that is not present in this host's installed locale list (`locale
--a`). Programs that call setlocale() with this value will fail or
-silently fall back to the 'C' locale, which is the direct cause of
-'Setting locale failed' warnings from perl, Python, and other programs.
+## Requirements and installation
 
-Current locale environment variables:
-  LANG=en_US.UTF-8
-  LC_TIME=de_DE.UTF-8 <-- requests an uninstalled locale
-
-Active charmap: UTF-8
-```
-
-Checks performed, in priority order:
-
-1. **Requested-but-uninstalled locale** — does any `LANG`/`LC_ALL`/`LC_*`
-   environment variable name a locale not present in `locale -a`?
-2. **Non-UTF-8 active charmap** — is the currently active locale's
-   charmap something other than UTF-8 (the classic mojibake trigger)?
-3. **sshd forwarding risk** — does `/etc/ssh/sshd_config`'s `AcceptEnv`
-   accept `LANG`/`LC_*` from connecting clients at all (a latent risk:
-   any client with an uninstalled locale set will trigger this failure)?
-
-**Strictly read-only.** It never runs `locale-gen`, `dpkg-reconfigure
-locales`, or modifies any SSH config file — it only reads environment
-variables and config/command output.
-
-## Install
-
-Requires Python 3.9+ on Linux (uses `locale -a`; degrades gracefully —
-and still works standalone — on macOS/BSD, though the SSH-specific
-sshd_config check is Linux-oriented).
+Python 3.9+ and a POSIX `locale` command. Linux is the primary target; environment and charmap checks can also run on macOS/BSD. No Python runtime dependencies.
 
 ```bash
-pip install locale-doctor
-```
-
-Or run the standalone zipapp with no install:
-
-```bash
-curl -LO https://github.com/zhuhroscar-tech/locale-doctor/releases/latest/download/locale-doctor.pyz
-python3 locale-doctor.pyz --version
-```
-
-Verify the download against `SHA256SUMS.txt` in the same release before
-running it.
-
-## Usage
-
-```bash
-locale-doctor                  # diagnose the current shell's locale environment
-locale-doctor --json           # machine-readable output
-locale-doctor --no-sshd-check  # skip reading /etc/ssh/sshd_config (e.g. if unreadable)
-```
-
-Run it inside the actual SSH session where you're seeing the problem —
-it inspects the *current process's* environment, which is exactly what
-was forwarded (or not) by your SSH client/server.
-
-Exit code `0` = no issue found, `2` = a locale issue was identified.
-
-## If it finds a problem
-
-This tool only diagnoses; it never modifies anything.
-
-- `requested_locale_not_installed` → either generate the missing locale
-  on this host (`locale-gen <name>` on Debian/Ubuntu, or
-  `localedef`/`dpkg-reconfigure locales`), or stop forwarding it from
-  the client: comment out `SendEnv LANG LC_*` in your local
-  `/etc/ssh/ssh_config` or `~/.ssh/config`.
-- `mismatched_charmap` → set the environment to an explicit `.UTF-8`
-  locale that is actually installed (`export LC_ALL=C.UTF-8` or a
-  proper `en_US.UTF-8`, etc.) rather than relying on whatever was
-  forwarded.
-- `ssh_forwards_uninstalled_locale_vars` → either comment out
-  `AcceptEnv LANG LC_*` in `/etc/ssh/sshd_config` on the server (so
-  clients can't push an unsupported locale), or ensure every locale
-  your clients might send is actually generated on this host.
-
-## Uninstall
-
-```bash
-pip uninstall locale-doctor
-```
-No config files, no persistent state — a stateless read-only diagnostic.
-
-## Privacy / permissions
-
-- No network access, no telemetry.
-- Reads process environment variables, `locale -a`, `locale -k
-  charmap`, and (optionally) `/etc/ssh/sshd_config`. Reading
-  `sshd_config` typically requires root on a locked-down host; the tool
-  degrades gracefully (`--no-sshd-check` skips it entirely) if
-  unreadable.
-- Writes nothing to disk.
-
-## Distro / architecture support
-
-Works on any POSIX system with a `locale` command (all mainstream Linux
-distros, and macOS/BSD for the non-sshd-specific checks). Pure Python,
-no compiled dependencies.
-
-## Reproducible build / test
-
-```bash
-git clone https://github.com/zhuhroscar-tech/locale-doctor
+git clone https://github.com/zhuhroscar-tech/locale-doctor.git
 cd locale-doctor
-python3 -m pip install -e .[dev]
-python3 -m pytest -v
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
 ```
 
-CI (`.github/workflows/ci.yml`) runs the suite on real Ubuntu runners
-across Python 3.9 and 3.12, then smoke-tests both the "no issue" path
-and a deliberately-triggered missing-locale detection (`LC_TIME` set to
-a nonexistent locale) against real `locale -a` output on the runner,
-before building and verifying the wheel/sdist and a standalone `.pyz`.
+## Quick start
 
-## License
+```bash
+locale-doctor
+locale-doctor --json
+locale-doctor --no-sshd-check
+```
 
-MIT — see [LICENSE](LICENSE).
+Run it **inside the session showing the problem**: it reads that process's environment, not another user's login settings. It checks `LANG`, `LANGUAGE`, `LC_ALL` and known `LC_*` variables against `locale -a`, then examines the active charmap and optionally `/etc/ssh/sshd_config` plus directly included files.
+
+Exit `0` means no issue was found by the performed checks. Exit `2` includes missing locales, non-UTF-8 charmap, forwarding risk and an unavailable locale list. An `AcceptEnv` warning is a potential risk, not proof that a client sent an invalid locale.
+
+For a no-install option, download `locale-doctor.pyz` from [releases](https://github.com/zhuhroscar-tech/locale-doctor/releases), verify the same release's `SHA256SUMS.txt`, then run `python3 locale-doctor.pyz`.
+
+## Interpreting findings
+
+For a missing locale, generate it using your distribution's tools or stop forwarding the unsupported value. For an encoding mismatch, select an installed UTF-8 locale. Review client `SendEnv` and server `AcceptEnv` together before changing SSH policy.
+
+The tool never runs `locale-gen`, edits configuration, writes persistent state or makes network requests. An unreadable SSH config is skipped; unknown charmap data is not flagged. The SSH check is a text scan, not evaluation of effective `sshd` policy or all nested includes/conditional blocks. A clean result therefore does not prove every locale or SSH setting is correct. Review output before sharing it: it includes locale environment values.
+
+## Development and removal
+
+```bash
+python -m pytest -q
+python -m pip uninstall locale-doctor
+```
+
+[Releases](https://github.com/zhuhroscar-tech/locale-doctor/releases) · [MIT license](LICENSE)
