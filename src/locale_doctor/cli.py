@@ -6,7 +6,11 @@ import json
 import sys
 
 from . import __version__
-from .core import diagnose_host, ISSUE_NONE_FOUND, ISSUE_LOCALE_LIST_UNAVAILABLE
+from .core import (
+    diagnose_host,
+    ISSUE_NONE_FOUND,
+    ISSUE_LOCALE_LIST_UNAVAILABLE,
+)
 from .style import print_fields, resolve_style, status_headline
 
 
@@ -50,6 +54,8 @@ def _print_text(report, style) -> None:
         print(f"\nActive charmap: {report.active_charmap}")
     if report.sshd_accepts_locale_vars:
         print("\nsshd_config AcceptEnv includes locale variables (LANG/LC_*).")
+    if report.ssh_client_sends_locale_vars:
+        print("\nssh_config (client) SendEnv includes locale variables (LANG/LC_*).")
 
 
 def main(argv=None) -> int:

@@ -4,6 +4,7 @@ from locale_doctor.core import (
     ISSUE_LOCALE_LIST_UNAVAILABLE,
     ISSUE_MISMATCHED_CHARMAP,
     ISSUE_NONE_FOUND,
+    ISSUE_SSH_CLIENT_FORWARDS_LOCALE,
     ISSUE_SSH_FORWARDS_UNKNOWN_LOCALE,
     ISSUE_UNSET_LOCALE_REQUESTED,
     charmap_is_utf8,
@@ -296,6 +297,77 @@ def test_run_returns_empty_string_on_timeout(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", raise_timeout)
     assert run(["locale", "-a"], timeout=1) == ""
+
+
+def test_diagnose_host_wires_up_ssh_client_sendenv_check(monkeypatch, tmp_path):
+    """Regression: core.py defines ssh_client_sends_locale() (client-side
+    SendEnv check) and the module docstring explicitly claims this tool
+    'checks ... /etc/ssh/ssh_config's SendEnv and /etc/ssh/sshd_config's
+    AcceptEnv ... and reconciles them by hand [for you]' -- but
+    diagnose_host() never read /etc/ssh/ssh_config or called
+    ssh_client_sends_locale() at all, only the server-side AcceptEnv half.
+    A host acting purely as an SSH *client* (common on a workstation/laptop
+    that never accepts inbound SSH) got a false 'no locale issue found'
+    even when its own ssh_config would forward an unsatisfiable locale to
+    every remote it connects to -- exactly the documented capability gap.
+    This test drives diagnose_host() with a fake runner that serves a
+    client-side ssh_config containing 'SendEnv LANG LC_*' (and an sshd_config
+    with no AcceptEnv, so the pre-existing server-side check alone would
+    report ISSUE_NONE_FOUND) and asserts the client-forwarding risk is
+    surfaced instead.
+    """
+    monkeypatch.setenv("LANG", "en_US.UTF-8")
+    monkeypatch.delenv("LC_ALL", raising=False)
+
+    def fake_runner(cmd, timeout=15):
+        if cmd == ["locale", "-a"]:
+            return "C\nC.UTF-8\nen_US.utf8\n"
+        if cmd[0] == "locale" and "charmap" in cmd:
+            return 'charmap="UTF-8"\n'
+        if cmd[0] == "cat" and cmd[1] == "/etc/ssh/sshd_config":
+            return "X11Forwarding yes\n"  # no AcceptEnv here
+        if cmd[0] == "cat" and cmd[1] == "/etc/ssh/ssh_config":
+            return "SendEnv LANG LC_*\n"  # client forwards locale vars
+        return ""
+
+    report = diagnose_host(runner=fake_runner)
+    assert report.issue == ISSUE_SSH_CLIENT_FORWARDS_LOCALE
+    assert report.ssh_client_sends_locale_vars is True
+
+
+def test_diagnose_host_no_client_forwarding_when_sendenv_absent(monkeypatch):
+    monkeypatch.setenv("LANG", "en_US.UTF-8")
+    monkeypatch.delenv("LC_ALL", raising=False)
+
+    def fake_runner(cmd, timeout=15):
+        if cmd == ["locale", "-a"]:
+            return "C\nC.UTF-8\nen_US.utf8\n"
+        if cmd[0] == "locale" and "charmap" in cmd:
+            return 'charmap="UTF-8"\n'
+        if cmd[0] == "cat" and cmd[1] == "/etc/ssh/sshd_config":
+            return "X11Forwarding yes\n"
+        if cmd[0] == "cat" and cmd[1] == "/etc/ssh/ssh_config":
+            return "X11Forwarding yes\n"  # no SendEnv
+        return ""
+
+    report = diagnose_host(runner=fake_runner)
+    assert report.issue == ISSUE_NONE_FOUND
+    assert report.ssh_client_sends_locale_vars is False
+
+
+def test_diagnose_prioritizes_server_accept_over_client_send():
+    """Server-side AcceptEnv (a host actually receiving a bad forwarded
+    locale over inbound SSH) is a more directly actionable finding than a
+    purely local client-side SendEnv risk, so it must still win when both
+    are present -- this ordering is preserved from before the fix."""
+    report = diagnose(
+        locale_env={"LANG": "en_US.UTF-8"},
+        installed_locales=INSTALLED_SAMPLE,
+        active_charmap="UTF-8",
+        sshd_config_text="AcceptEnv LANG LC_*\n",
+        ssh_client_config_text="SendEnv LANG LC_*\n",
+    )
+    assert report.issue == ISSUE_SSH_FORWARDS_UNKNOWN_LOCALE
 
 
 def test_run_returns_stdout_on_success(monkeypatch):

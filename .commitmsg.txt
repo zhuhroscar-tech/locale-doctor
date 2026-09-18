@@ -1,0 +1,26 @@
+Wire up client-side SSH SendEnv locale check (was defined but unused)
+
+ssh_client_sends_locale() existed in core.py and the module docstring
+explicitly claimed this tool checks both ssh_config's SendEnv (client)
+and sshd_config's AcceptEnv (server), but diagnose_host() only ever
+read sshd_config, a purely client-role host (workstation/laptop that
+never accepts inbound SSH) got a false "no locale issue found" even
+when its own ssh_config would forward an unsatisfiable locale to every
+remote it connects to.
+
+Add ISSUE_SSH_CLIENT_FORWARDS_LOCALE outcome plus explanation.
+diagnose() now accepts ssh_client_config_text and checks it after the
+existing server-side AcceptEnv check (server-side stays higher
+priority: a host actually receiving a bad forwarded locale is more
+actionable than one merely capable of forwarding).
+diagnose_host() reads /etc/ssh/ssh_config alongside sshd_config.
+LocaleDoctorReport gains ssh_client_sends_locale_vars (to_dict too).
+cli.py prints the new finding in text mode.
+README.md and README.zh-CN.md updated to describe the now-real
+behavior.
+
+4 new regression tests (2 core diagnose_host wiring, 1 core priority
+ordering, 1 cli text-output), all failed against pre-fix code (missing
+symbols/wiring), confirmed via py_compile plus full suite.
+
+Local: 56/56 tests pass (up from 52), coverage 98% to 99%.

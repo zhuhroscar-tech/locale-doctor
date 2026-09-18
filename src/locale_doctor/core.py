@@ -36,6 +36,7 @@ from typing import Optional
 ISSUE_UNSET_LOCALE_REQUESTED = "requested_locale_not_installed"
 ISSUE_MISMATCHED_CHARMAP = "mismatched_charmap"
 ISSUE_SSH_FORWARDS_UNKNOWN_LOCALE = "ssh_forwards_uninstalled_locale_vars"
+ISSUE_SSH_CLIENT_FORWARDS_LOCALE = "ssh_client_forwards_locale_vars"
 ISSUE_LOCALE_LIST_UNAVAILABLE = "installed_locale_list_unavailable"
 ISSUE_NONE_FOUND = "no_locale_issue_found"
 
@@ -71,6 +72,19 @@ ISSUE_EXPLANATIONS = {
         "(via SendEnv) with a locale this host does not have installed. "
         "This is the most common root cause of 'Setting locale failed' "
         "warnings appearing only over SSH and not in a local terminal."
+    ),
+    ISSUE_SSH_CLIENT_FORWARDS_LOCALE: (
+        "This host's own ssh_config (client side) is configured to send "
+        "(SendEnv) locale-related environment variables to every remote "
+        "server it connects to, via a value this host's *current* locale "
+        "environment requests. If a remote server does not have that "
+        "locale installed and its sshd_config accepts the variable "
+        "(AcceptEnv), the remote session will show 'Setting locale "
+        "failed'/mojibake even though this host's own locale setup is "
+        "fine. This is a latent risk to remote sessions, not a proven "
+        "failure on this host -- inspect the remote's installed locales "
+        "and AcceptEnv policy, or stop forwarding locale variables you "
+        "don't need remotely."
     ),
     ISSUE_NONE_FOUND: (
         "No locale misconfiguration was detected: every requested locale "
@@ -209,6 +223,7 @@ class LocaleDoctorReport:
     missing_locales: dict = field(default_factory=dict)
     active_charmap: Optional[str] = None
     sshd_accepts_locale_vars: Optional[bool] = None
+    ssh_client_sends_locale_vars: Optional[bool] = None
 
     def to_dict(self) -> dict:
         return {
@@ -218,6 +233,7 @@ class LocaleDoctorReport:
             "missing_locales": dict(self.missing_locales),
             "active_charmap": self.active_charmap,
             "sshd_accepts_locale_vars": self.sshd_accepts_locale_vars,
+            "ssh_client_sends_locale_vars": self.ssh_client_sends_locale_vars,
         }
 
 
@@ -226,6 +242,7 @@ def diagnose(
     installed_locales: list,
     active_charmap: Optional[str],
     sshd_config_text: Optional[str] = None,
+    ssh_client_config_text: Optional[str] = None,
 ) -> LocaleDoctorReport:
     """Classify locale misconfiguration, in priority order: an unavailable
     installed-locale list (means the check itself is broken -- must not be
@@ -233,8 +250,18 @@ def diagnose(
     currently unsatisfiable requested locale (most directly explains a
     failure the user is already seeing); then a non-UTF-8 charmap (explains
     mojibake); then sshd accepting locale vars it can't guarantee (a latent
-    risk rather than a proven failure); else none found."""
+    risk rather than a proven failure) -- server-side risk is checked before
+    client-side because a host actually receiving a bad forwarded locale
+    over inbound SSH is a more directly actionable finding than this host's
+    own outbound ssh_config merely being capable of forwarding one; then
+    this host's own ssh_config sending locale vars outward (a latent risk
+    to remote sessions, not a proven failure here); else none found."""
     sshd_accepts = sshd_accepts_locale(sshd_config_text) if sshd_config_text is not None else None
+    ssh_client_sends = (
+        ssh_client_sends_locale(ssh_client_config_text)
+        if ssh_client_config_text is not None
+        else None
+    )
 
     if not installed_locales:
         return LocaleDoctorReport(
@@ -244,6 +271,7 @@ def diagnose(
             missing_locales={},
             active_charmap=active_charmap,
             sshd_accepts_locale_vars=sshd_accepts,
+            ssh_client_sends_locale_vars=ssh_client_sends,
         )
 
     missing = find_missing_locales(locale_env, installed_locales)
@@ -256,6 +284,7 @@ def diagnose(
             missing_locales=missing,
             active_charmap=active_charmap,
             sshd_accepts_locale_vars=sshd_accepts,
+            ssh_client_sends_locale_vars=ssh_client_sends,
         )
 
     if not charmap_is_utf8(active_charmap):
@@ -266,6 +295,7 @@ def diagnose(
             missing_locales=missing,
             active_charmap=active_charmap,
             sshd_accepts_locale_vars=sshd_accepts,
+            ssh_client_sends_locale_vars=ssh_client_sends,
         )
 
     if sshd_accepts:
@@ -276,6 +306,18 @@ def diagnose(
             missing_locales=missing,
             active_charmap=active_charmap,
             sshd_accepts_locale_vars=sshd_accepts,
+            ssh_client_sends_locale_vars=ssh_client_sends,
+        )
+
+    if ssh_client_sends:
+        return LocaleDoctorReport(
+            issue=ISSUE_SSH_CLIENT_FORWARDS_LOCALE,
+            explanation=ISSUE_EXPLANATIONS[ISSUE_SSH_CLIENT_FORWARDS_LOCALE],
+            locale_env=locale_env,
+            missing_locales=missing,
+            active_charmap=active_charmap,
+            sshd_accepts_locale_vars=sshd_accepts,
+            ssh_client_sends_locale_vars=ssh_client_sends,
         )
 
     return LocaleDoctorReport(
@@ -285,6 +327,7 @@ def diagnose(
         missing_locales=missing,
         active_charmap=active_charmap,
         sshd_accepts_locale_vars=sshd_accepts,
+        ssh_client_sends_locale_vars=ssh_client_sends,
     )
 
 
@@ -294,6 +337,7 @@ def diagnose_host(check_sshd_config: bool = True, runner=run) -> LocaleDoctorRep
     charmap = get_active_charmap(runner=runner)
 
     sshd_config_text = None
+    ssh_client_config_text = None
     if check_sshd_config:
         for candidate in ("/etc/ssh/sshd_config",):
             text = read_file_if_exists(candidate, runner=runner)
@@ -308,4 +352,12 @@ def diagnose_host(check_sshd_config: bool = True, runner=run) -> LocaleDoctorRep
         if sshd_config_text is None:
             sshd_config_text = ""
 
-    return diagnose(locale_env, installed, charmap, sshd_config_text=sshd_config_text)
+        ssh_client_config_text = read_file_if_exists("/etc/ssh/ssh_config", runner=runner)
+
+    return diagnose(
+        locale_env,
+        installed,
+        charmap,
+        sshd_config_text=sshd_config_text,
+        ssh_client_config_text=ssh_client_config_text,
+    )

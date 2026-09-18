@@ -3,7 +3,12 @@ import json
 import pytest
 
 from locale_doctor.cli import main
-from locale_doctor.core import LocaleDoctorReport, ISSUE_UNSET_LOCALE_REQUESTED, ISSUE_NONE_FOUND
+from locale_doctor.core import (
+    LocaleDoctorReport,
+    ISSUE_NONE_FOUND,
+    ISSUE_SSH_CLIENT_FORWARDS_LOCALE,
+    ISSUE_UNSET_LOCALE_REQUESTED,
+)
 
 
 def _fake_report(issue=ISSUE_UNSET_LOCALE_REQUESTED):
@@ -61,3 +66,21 @@ def test_no_sshd_check_flag_passed_through(monkeypatch):
     monkeypatch.setattr("locale_doctor.cli.diagnose_host", fake_diagnose)
     main(["--no-sshd-check"])
     assert captured["check_sshd_config"] is False
+
+
+def test_text_output_shows_ssh_client_sendenv_line(monkeypatch, capsys):
+    """cli.py must surface ssh_client_sends_locale_vars, the client-side
+    SendEnv risk newly wired up in core.py's diagnose_host()."""
+    report = LocaleDoctorReport(
+        issue=ISSUE_SSH_CLIENT_FORWARDS_LOCALE,
+        explanation="client forwards locale vars",
+        locale_env={"LANG": "en_US.UTF-8"},
+        active_charmap="UTF-8",
+        sshd_accepts_locale_vars=False,
+        ssh_client_sends_locale_vars=True,
+    )
+    monkeypatch.setattr("locale_doctor.cli.diagnose_host", lambda check_sshd_config: report)
+    rc = main([])
+    out = capsys.readouterr().out
+    assert "ssh_config (client) SendEnv includes locale variables" in out
+    assert rc == 2

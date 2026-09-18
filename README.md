@@ -28,9 +28,9 @@ locale-doctor --json
 locale-doctor --no-sshd-check
 ```
 
-Run it **inside the session showing the problem**: it reads that process's environment, not another user's login settings. It checks `LANG`, `LANGUAGE`, `LC_ALL` and known `LC_*` variables against `locale -a`, then examines the active charmap and optionally `/etc/ssh/sshd_config` plus directly included files.
+Run it **inside the session showing the problem**: it reads that process's environment, not another user's login settings. It checks `LANG`, `LANGUAGE`, `LC_ALL` and known `LC_*` variables against `locale -a`, then examines the active charmap and optionally `/etc/ssh/sshd_config` (plus directly included files, server-side `AcceptEnv`) and `/etc/ssh/ssh_config` (client-side `SendEnv`).
 
-Exit `0` means no issue was found by the performed checks. Exit `2` includes missing locales, non-UTF-8 charmap, forwarding risk and an unavailable locale list. An `AcceptEnv` warning is a potential risk, not proof that a client sent an invalid locale.
+Exit `0` means no issue was found by the performed checks. Exit `2` includes missing locales, non-UTF-8 charmap, forwarding risk (server `AcceptEnv` or client `SendEnv`) and an unavailable locale list. An `AcceptEnv`/`SendEnv` warning is a potential risk, not proof that a client sent (or a server received) an invalid locale.
 
 For a no-install option, download `locale-doctor.pyz` from [releases](https://github.com/zhuhroscar-tech/locale-doctor/releases), verify the same release's `SHA256SUMS.txt`, then run `python3 locale-doctor.pyz`.
 

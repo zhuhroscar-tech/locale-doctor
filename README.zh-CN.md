@@ -28,9 +28,9 @@ locale-doctor --json
 locale-doctor --no-sshd-check
 ```
 
-请**在出现问题的会话内运行**：工具读取当前进程的环境，不是其他用户的登录设置。它将 `LANG`、`LANGUAGE`、`LC_ALL` 及已知的 `LC_*` 变量与 `locale -a` 对照，再检查当前 charmap，并可读取 `/etc/ssh/sshd_config` 及其直接 Include 的文件。
+请**在出现问题的会话内运行**：工具读取当前进程的环境，不是其他用户的登录设置。它将 `LANG`、`LANGUAGE`、`LC_ALL` 及已知的 `LC_*` 变量与 `locale -a` 对照，再检查当前 charmap，并可读取 `/etc/ssh/sshd_config`（及其直接 Include 的文件，服务端 `AcceptEnv`）和 `/etc/ssh/ssh_config`（客户端 `SendEnv`）。
 
-退出码 `0` 表示已执行的检查未发现问题；`2` 包括缺失 locale、非 UTF-8 编码、转发风险，以及无法获取已安装 locale 列表。`AcceptEnv` 警告只是潜在风险，不证明客户端已经发送了无效值。
+退出码 `0` 表示已执行的检查未发现问题；`2` 包括缺失 locale、非 UTF-8 编码、转发风险（服务端 `AcceptEnv` 或客户端 `SendEnv`），以及无法获取已安装 locale 列表。`AcceptEnv`/`SendEnv` 警告只是潜在风险，不证明客户端已发送（或服务端已接收）无效值。
 
 无需安装时，可从[发布页面](https://github.com/zhuhroscar-tech/locale-doctor/releases)下载 `locale-doctor.pyz`，核对同版本的 `SHA256SUMS.txt` 后运行 `python3 locale-doctor.pyz`。
 
