@@ -247,6 +247,40 @@ def test_diagnose_host_integration_locale_a_unavailable(monkeypatch):
     assert report.issue == ISSUE_LOCALE_LIST_UNAVAILABLE
 
 
+def test_diagnose_host_when_sshd_config_file_absent_entirely(monkeypatch):
+    """Regression for a real, common case this repo's own audit missed:
+    a non-server Linux host (desktop/laptop/container image) with no
+    openssh-server installed at all has no /etc/ssh/sshd_config file.
+    `cat` on a missing file exits non-zero with empty stdout, so run()
+    returns "" (not None) -- read_file_if_exists() then returns a falsy
+    "" for the candidate, the `if text:` guard never fires, the loop
+    exhausts without ever setting sshd_config_text, and diagnose_host()
+    must fall back to sshd_config_text = "" (not None, not crash) so
+    sshd_accepts_locale("") -> False rather than sshd_accepts_locale(None)
+    raising or being skipped as unknown. Before this test, that exact
+    fallback line (core.py's `if sshd_config_text is None: sshd_config_text
+    = ""`) was unreachable by any test and had 0% coverage."""
+    monkeypatch.setenv("LANG", "en_US.UTF-8")
+    monkeypatch.delenv("LC_ALL", raising=False)
+
+    def fake_runner(cmd, timeout=15):
+        if cmd == ["locale", "-a"]:
+            return "C\nC.UTF-8\nen_US.utf8\n"
+        if cmd[0] == "locale" and "charmap" in cmd:
+            return 'charmap="UTF-8"\n'
+        if cmd[0] == "cat":
+            return ""  # no such file on this host -- cat fails, run() -> ""
+        return ""
+
+    report = diagnose_host(runner=fake_runner)
+    assert report.issue == ISSUE_NONE_FOUND
+    # sshd_accepts_locale_vars must be a definite False, not None/unknown,
+    # proving diagnose() received sshd_config_text="" and evaluated it,
+    # rather than silently skipping the check.
+    assert report.sshd_accepts_locale_vars is False
+    assert report.ssh_client_sends_locale_vars is False
+
+
 def test_find_included_sshd_files_resolves_absolute_glob():
     """Ubuntu 20.04+/Debian 11+/RHEL 8+ ship `Include /etc/ssh/sshd_config.d/*.conf`
     at the top of the default sshd_config; hardening tools (cloud-init,
