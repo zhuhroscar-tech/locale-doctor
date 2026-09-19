@@ -139,9 +139,27 @@ def locale_is_installed(requested: str, installed: list) -> bool:
 
 def find_missing_locales(locale_env: dict, installed: list) -> dict:
     """Return {var_name: requested_value} for every locale env var whose
-    value names a locale not present in `installed`."""
+    value names a locale not present in `installed`.
+
+    glibc/POSIX setlocale() precedence: when LC_ALL is set to a non-empty
+    value, it overrides LANG and every per-category LC_* variable
+    entirely for the purposes of setlocale() -- those variables are not
+    consulted at all and have zero effect on the running process, no
+    matter what they contain. Checking them independently produces false
+    positives for a stale, unused LC_TIME/LC_COLLATE/etc. (or LANG) left
+    over in the environment while LC_ALL already names an installed
+    locale. LANGUAGE is a separate GNU gettext extension that is NOT
+    overridden by LC_ALL (gettext consults LANGUAGE ahead of LC_ALL/LANG
+    for message-catalog selection whenever the resolved locale isn't
+    "C"/"POSIX"), so it is still checked independently here.
+    """
     missing = {}
+    lc_all = locale_env.get("LC_ALL", "")
+    lc_all_active = bool(lc_all.strip())
     for var, value in locale_env.items():
+        if lc_all_active and var not in ("LC_ALL", "LANGUAGE"):
+            # Overridden entirely by LC_ALL; this variable has no effect.
+            continue
         # LANGUAGE can be a colon-separated fallback list; check each entry.
         candidates = value.split(":") if var == "LANGUAGE" else [value]
         for candidate in candidates:

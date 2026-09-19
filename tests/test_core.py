@@ -62,6 +62,40 @@ def test_find_missing_locales_none_missing():
     assert find_missing_locales(env, INSTALLED_SAMPLE) == {}
 
 
+def test_find_missing_locales_lc_all_overrides_stale_lc_category():
+    """glibc setlocale() precedence: a non-empty LC_ALL overrides every
+    per-category LC_* variable (and LANG) entirely. A stale, uninstalled
+    LC_TIME left in the environment has zero effect once LC_ALL is set
+    to an installed locale and must not be reported as missing."""
+    env = {"LC_ALL": "en_US.UTF-8", "LC_TIME": "de_DE.UTF-8", "LANG": "en_US.UTF-8"}
+    assert find_missing_locales(env, INSTALLED_SAMPLE) == {}
+
+
+def test_find_missing_locales_lc_all_itself_still_checked():
+    """LC_ALL overriding other variables does not exempt LC_ALL's own
+    value from being checked against the installed locale list."""
+    env = {"LC_ALL": "de_DE.UTF-8", "LC_TIME": "de_DE.UTF-8"}
+    missing = find_missing_locales(env, INSTALLED_SAMPLE)
+    assert missing == {"LC_ALL": "de_DE.UTF-8"}
+
+
+def test_find_missing_locales_language_checked_even_with_lc_all_set():
+    """LANGUAGE is a GNU gettext extension not overridden by LC_ALL, so
+    it must still be checked independently."""
+    env = {"LC_ALL": "en_US.UTF-8", "LANGUAGE": "de_DE:en_US:en"}
+    missing = find_missing_locales(env, INSTALLED_SAMPLE)
+    assert "LANGUAGE" in missing
+    assert "LC_ALL" not in missing
+
+
+def test_find_missing_locales_without_lc_all_still_flags_categories():
+    """Unchanged behavior when LC_ALL is absent/empty: every LC_*
+    category and LANG are still checked independently."""
+    env = {"LANG": "en_US.UTF-8", "LC_TIME": "de_DE.UTF-8", "LC_ALL": ""}
+    missing = find_missing_locales(env, INSTALLED_SAMPLE)
+    assert missing == {"LC_TIME": "de_DE.UTF-8"}
+
+
 def test_get_installed_locales_uses_runner():
     def fake_runner(cmd, timeout=15):
         assert cmd == ["locale", "-a"]
