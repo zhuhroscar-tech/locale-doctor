@@ -28,7 +28,7 @@ locale-doctor --json
 locale-doctor --no-sshd-check
 ```
 
-Run it **inside the session showing the problem**: it reads that process's environment, not another user's login settings. It checks `LANG`, `LANGUAGE`, `LC_ALL` and known `LC_*` variables against `locale -a`, then examines the active charmap and optionally `/etc/ssh/sshd_config` (plus directly included files, server-side `AcceptEnv`) and `/etc/ssh/ssh_config` (client-side `SendEnv`).
+Run it **inside the session showing the problem**: it reads that process's environment, not another user's login settings. It checks `LANG`, `LANGUAGE`, `LC_ALL` and known `LC_*` variables against `locale -a`, then examines the active charmap and optionally `/etc/ssh/sshd_config` (server-side `AcceptEnv`) and `/etc/ssh/ssh_config` (client-side `SendEnv`) -- both resolved together with any files they pull in via `Include` (e.g. the `/etc/ssh/sshd_config.d/*.conf` / `/etc/ssh/ssh_config.d/*.conf` drop-in layout that Debian/Ubuntu ship by default since OpenSSH 8.2).
 
 Exit `0` means no issue was found by the performed checks. Exit `2` includes missing locales, non-UTF-8 charmap, forwarding risk (server `AcceptEnv` or client `SendEnv`) and an unavailable locale list. An `AcceptEnv`/`SendEnv` warning is a potential risk, not proof that a client sent (or a server received) an invalid locale.
 

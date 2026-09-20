@@ -345,6 +345,47 @@ def test_diagnose_host_detects_accept_env_only_in_included_dropin(monkeypatch, t
     assert report.sshd_accepts_locale_vars is True
 
 
+def test_diagnose_host_detects_sendenv_only_in_included_client_dropin(monkeypatch, tmp_path):
+    """Regression for a real gap mirroring the sshd_config one above: since
+    OpenSSH 8.2 / Debian's openssh-client packaging, the *default* system
+    /etc/ssh/ssh_config on Ubuntu 20.04+ and Debian 11+ starts with
+    `Include /etc/ssh/ssh_config.d/*.conf` (and separately ships its own
+    `SendEnv LANG LC_*` as a Debian default) -- config-management tooling
+    commonly drops further SendEnv directives into that directory rather
+    than editing the main file, exactly like the sshd_config.d case already
+    covered above. diagnose_host() resolves Include directives for the
+    server-side sshd_config (find_included_sshd_files) but never did the
+    same for the client-side ssh_config: it only ever read the literal
+    /etc/ssh/ssh_config file verbatim. A host whose own SendEnv LANG LC_*
+    lives solely in a drop-in (the common real-world layout) got a false
+    'no locale issue found' instead of the client-forwarding-risk verdict.
+    """
+    monkeypatch.setenv("LANG", "en_US.UTF-8")
+    monkeypatch.delenv("LC_ALL", raising=False)
+
+    dropin_dir = tmp_path / "ssh_config.d"
+    dropin_dir.mkdir()
+    dropin_file = dropin_dir / "50-locale.conf"
+    dropin_file.write_text("SendEnv LANG LC_*\n")
+
+    def fake_runner(cmd, timeout=15):
+        if cmd == ["locale", "-a"]:
+            return "C\nC.UTF-8\nen_US.utf8\n"
+        if cmd[0] == "locale" and "charmap" in cmd:
+            return 'charmap="UTF-8"\n'
+        if cmd[0] == "cat" and cmd[1] == "/etc/ssh/sshd_config":
+            return "X11Forwarding yes\n"  # no AcceptEnv here
+        if cmd[0] == "cat" and cmd[1] == "/etc/ssh/ssh_config":
+            return f"Include {dropin_dir}/*.conf\nHashKnownHosts yes\n"
+        if cmd[0] == "cat" and cmd[1] == str(dropin_file):
+            return dropin_file.read_text()
+        return ""
+
+    report = diagnose_host(runner=fake_runner)
+    assert report.issue == ISSUE_SSH_CLIENT_FORWARDS_LOCALE
+    assert report.ssh_client_sends_locale_vars is True
+
+
 def test_run_returns_empty_string_on_oserror(monkeypatch):
     """run() is the sole subprocess wrapper used by every locale/locale -a/cat
     call. If the binary is missing or unreadable, subprocess.run can raise

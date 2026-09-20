@@ -210,17 +210,26 @@ def read_file_if_exists(path: str, runner=run) -> str:
 _INCLUDE_RE = re.compile(r"^\s*Include\s+(.+)$", re.IGNORECASE | re.MULTILINE)
 
 
-def find_included_sshd_files(config_text: str, base_dir: str = "/etc/ssh", glob_fn=glob_module.glob) -> list:
-    """Resolve every path matched by an sshd_config `Include` directive.
+def find_included_config_files(config_text: str, base_dir: str = "/etc/ssh", glob_fn=glob_module.glob) -> list:
+    """Resolve every path matched by an ssh_config/sshd_config `Include`
+    directive. Shared by both the client and server config resolution
+    paths below, since the `Include` directive's syntax and resolution
+    rules (relative patterns resolve against `base_dir`, wildcards
+    expanded in lexical/sorted order) are identical for both file types
+    per ssh_config(5)/sshd_config(5).
 
     Every mainstream OpenSSH-shipped sshd_config since OpenSSH 8.2 (the
     default on Ubuntu 20.04+, Debian 11+, RHEL 8+, and most distro
     packaging) starts with `Include /etc/ssh/sshd_config.d/*.conf`, and
     hardening/config-management tooling (cloud-init, Ansible, Puppet)
     commonly drops `AcceptEnv` overrides into that directory rather than
-    editing the main file. A relative Include pattern is resolved against
-    `base_dir` (sshd_config's own directory), matching sshd's own
-    behavior. Glob matches are sorted for deterministic, reproducible
+    editing the main file. The same is true on the client side: Debian's
+    openssh-client package ships a default `/etc/ssh/ssh_config` starting
+    with `Include /etc/ssh/ssh_config.d/*.conf` since the same OpenSSH 8.2
+    packaging change, and config-management tooling can equally drop
+    `SendEnv` overrides there. A relative Include pattern is resolved
+    against `base_dir` (the config file's own directory), matching ssh's
+    own behavior. Glob matches are sorted for deterministic, reproducible
     results.
     """
     paths: list = []
@@ -231,6 +240,12 @@ def find_included_sshd_files(config_text: str, base_dir: str = "/etc/ssh", glob_
                 pattern = f"{base_dir.rstrip('/')}/{pattern}"
             paths.extend(sorted(glob_fn(pattern)))
     return paths
+
+
+# Backwards-compatible alias: earlier versions of this module only
+# resolved Include directives for sshd_config, before client-side
+# ssh_config Include resolution was added. Keep the old name importable.
+find_included_sshd_files = find_included_config_files
 
 
 @dataclass
@@ -361,7 +376,7 @@ def diagnose_host(check_sshd_config: bool = True, runner=run) -> LocaleDoctorRep
             text = read_file_if_exists(candidate, runner=runner)
             if text:
                 sshd_config_text = text
-                included = find_included_sshd_files(text)
+                included = find_included_config_files(text)
                 for inc_path in included:
                     inc_text = read_file_if_exists(inc_path, runner=runner)
                     if inc_text:
@@ -371,6 +386,12 @@ def diagnose_host(check_sshd_config: bool = True, runner=run) -> LocaleDoctorRep
             sshd_config_text = ""
 
         ssh_client_config_text = read_file_if_exists("/etc/ssh/ssh_config", runner=runner)
+        if ssh_client_config_text:
+            client_included = find_included_config_files(ssh_client_config_text)
+            for inc_path in client_included:
+                inc_text = read_file_if_exists(inc_path, runner=runner)
+                if inc_text:
+                    ssh_client_config_text += "\n" + inc_text
 
     return diagnose(
         locale_env,
