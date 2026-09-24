@@ -47,4 +47,4 @@ python -m pytest -q
 python -m pip uninstall locale-doctor
 ```
 
-[Releases](https://github.com/zhuhroscar-tech/locale-doctor/releases) · [MIT license](LICENSE)
+[Changelog](CHANGELOG.md) · [Releases](https://github.com/zhuhroscar-tech/locale-doctor/releases) · [MIT license](LICENSE)
