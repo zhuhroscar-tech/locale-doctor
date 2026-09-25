@@ -45,6 +45,7 @@ def test_readmes_link_release_history_license_and_download_artifacts() -> None:
 def test_changelog_documents_current_version() -> None:
     text = CHANGELOG.read_text(encoding="utf-8")
     assert f"## v{_version()}" in text
+    assert "v0.1.10" in text
     assert "v0.1.9" in text
     assert "v0.1.0" in text
 
@@ -57,4 +58,14 @@ def test_ci_builds_release_artifacts_and_runs_codeql() -> None:
     assert "locale-doctor.pyz" in ci_text
     assert "SHA256SUMS.txt" in ci_text
     assert "actions/upload-artifact" in ci_text
+    assert "tags:" in ci_text
+    assert "v*" in ci_text
     assert "github/codeql-action" in codeql_text
+
+
+def test_package_metadata_links_project_resources() -> None:
+    text = PYPROJECT.read_text(encoding="utf-8")
+    assert "[project.urls]" in text
+    assert "Homepage" in text
+    assert "Changelog" in text
+    assert "Issues" in text

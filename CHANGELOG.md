@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.11 — 2026-09-25
+
+- Made release-tag CI explicit for `v*` tags so published releases exercise the same artifact build path as `main`.
+- Added package project URLs for homepage, changelog, and issue tracking.
+- Ignored local release-verification build directories used during maintenance runs.
+
 ## v0.1.10 — 2026-09-24
 
 - Added release-history documentation and repository-contract checks so the project stays complete across future releases.
